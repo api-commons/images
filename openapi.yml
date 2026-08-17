@@ -1,0 +1,672 @@
+openapi: 3.1.0
+info:
+  title: Images API
+  summary: A base Images API every service can start from, instead of reinventing one.
+  description: |-
+    Images have been done. There is no good reason every application should invent its
+    own upload endpoint, its own metadata shape, and its own way of asking for a smaller
+    version of the same picture.
+
+    This is a **base** Images API for the [API Commons](https://apicommons.org): a
+    starting point you copy into your own service rather than a hosted API. It covers
+    upload, metadata, renditions, and deletion — the parts that are the same everywhere.
+
+    Two deliberate choices worth copying. **Upload is a two-step flow**: create the image
+    record, then PUT the bytes to the returned upload URL. That keeps large binaries off
+    the JSON API, lets you hand out a pre-signed storage URL, and means a failed upload
+    does not lose the metadata. And **renditions are requested, not enumerated** — a
+    client asks for the size it wants rather than reading a list of fixed variants.
+
+    Errors are [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem details,
+    identical to every other API Commons base, and checked in CI by the
+    [Problem Details ruleset](https://github.com/api-commons/spectral-problem-details-ruleset).
+    Partial updates use [RFC 7396](https://www.rfc-editor.org/rfc/rfc7396) JSON Merge Patch.
+  version: 1.0.0
+  contact:
+    name: API Evangelist
+    url: https://apievangelist.com
+    email: info@apievangelist.com
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+externalDocs:
+  description: The Images base on API Commons
+  url: https://apicommons.org/base/images/
+
+tags:
+  - name: Images
+    description: Uploading, describing, transforming, and deleting images.
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  /images:
+
+    get:
+      summary: List images
+      description: List images the caller can see, newest first.
+      operationId: listImages
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: tag
+          in: query
+          description: Filter to images carrying this tag.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of images.
+          headers:
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      summary: Create an image
+      description: >-
+        Create the image record and receive a short-lived `upload.url` to PUT the bytes
+        to. The image stays in `pending` until the bytes arrive.
+      operationId: createImage
+      tags: [Images]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageCreate'
+      responses:
+        '201':
+          description: The image record was created and is awaiting bytes.
+          headers:
+            Location:
+              description: The URL of the newly created image.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImageUpload'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableContent'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /images/{imageId}:
+
+    parameters:
+      - $ref: '#/components/parameters/ImageId'
+
+    get:
+      summary: Get an image
+      description: Retrieve an image's metadata. The bytes live at `renditions`.
+      operationId: getImage
+      tags: [Images]
+      responses:
+        '200':
+          description: The image.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      summary: Update an image
+      description: >-
+        Partially update image metadata with an RFC 7396 JSON Merge Patch. A member set
+        to null is REMOVED. The bytes themselves are immutable — replace an image by
+        creating a new one.
+      operationId: updateImage
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ImagePatch'
+      responses:
+        '200':
+          description: The updated image.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Image'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableContent'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      summary: Delete an image
+      description: >-
+        Delete the image and every rendition derived from it. Renditions already handed
+        out may remain in downstream caches until they expire.
+      operationId: deleteImage
+      tags: [Images]
+      responses:
+        '204':
+          description: The image and all of its renditions were deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /images/{imageId}/renditions:
+
+    parameters:
+      - $ref: '#/components/parameters/ImageId'
+
+    get:
+      summary: Request a rendition
+      description: >-
+        Ask for the image at a given size and format. Renditions are requested rather
+        than enumerated, so a client never has to discover which fixed variants exist.
+        The response redirects to, or returns, a cacheable URL for the rendition.
+      operationId: getImageRendition
+      tags: [Images]
+      parameters:
+        - name: width
+          in: query
+          description: Target width in pixels. Aspect ratio is preserved.
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8192
+        - name: format
+          in: query
+          description: Target encoding.
+          required: false
+          schema:
+            type: string
+            enum: [jpeg, png, webp, avif]
+      responses:
+        '200':
+          description: The rendition.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rendition'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableContent'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: A bearer token obtained from your identity provider.
+
+  parameters:
+
+    ImageId:
+      name: imageId
+      in: path
+      required: true
+      description: The image's unique identifier.
+      schema:
+        type: string
+      example: img_01HZX
+
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of results to return.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 25
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor from a previous response's `next` value.
+      schema:
+        type: string
+
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: >-
+        The ETag from a prior read. Conditions the write on the image not having changed
+        since, per RFC 9110 Section 13.1.1.
+      schema:
+        type: string
+
+  schemas:
+
+    ImageStatus:
+      type: string
+      description: >-
+        `pending` means the record exists but the bytes have not arrived. `ready` means
+        it is usable. `failed` means the upload or processing did not complete.
+      enum: [pending, ready, failed]
+
+    Image:
+      type: object
+      description: An image and its metadata.
+      required: [id, status, created]
+      properties:
+        id:
+          type: string
+          example: img_01HZX
+        status:
+          $ref: '#/components/schemas/ImageStatus'
+        alt:
+          type: string
+          description: >-
+            Text alternative for the image. Not optional in practice — an image API that
+            makes this easy to skip produces an inaccessible product downstream.
+          example: A hand-drawn sun glyph on a dark grid.
+        caption:
+          type: string
+        contentType:
+          type: string
+          description: The stored media type.
+          example: image/jpeg
+        width:
+          type: integer
+          description: Intrinsic width in pixels.
+        height:
+          type: integer
+          description: Intrinsic height in pixels.
+        bytes:
+          type: integer
+          description: Size of the stored original, in bytes.
+        tags:
+          type: array
+          items:
+            type: string
+        created:
+          type: string
+          format: date-time
+        modified:
+          type: string
+          format: date-time
+
+    ImageCreate:
+      type: object
+      description: The fields accepted when creating an image record.
+      required: [contentType]
+      properties:
+        contentType:
+          type: string
+          description: The media type of the bytes you are about to upload.
+          example: image/jpeg
+        alt:
+          type: string
+        caption:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    ImageUpload:
+      type: object
+      description: A newly created image record plus where to send the bytes.
+      required: [image, upload]
+      properties:
+        image:
+          $ref: '#/components/schemas/Image'
+        upload:
+          type: object
+          description: Where and how to deliver the bytes.
+          required: [url, method, expires]
+          properties:
+            url:
+              type: string
+              format: uri
+              description: Short-lived URL to PUT the bytes to.
+            method:
+              type: string
+              enum: [PUT]
+            expires:
+              type: string
+              format: date-time
+              description: After this, request a new upload URL.
+
+    ImagePatch:
+      type: object
+      description: >-
+        An RFC 7396 merge patch over image metadata. Send only what changes. A member set
+        to null is REMOVED, so do not serialize absent optional fields as null.
+      properties:
+        alt:
+          type: [string, 'null']
+        caption:
+          type: [string, 'null']
+        tags:
+          type: [array, 'null']
+          items:
+            type: string
+
+    Rendition:
+      type: object
+      description: A derived version of an image at a requested size and format.
+      required: [url, width, height, contentType]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Cacheable URL for the rendition.
+        width:
+          type: integer
+        height:
+          type: integer
+        contentType:
+          type: string
+          example: image/webp
+        bytes:
+          type: integer
+
+    ImageList:
+      type: object
+      description: A page of images.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+        next:
+          type: [string, 'null']
+          description: Cursor for the next page, or null when this is the last page.
+
+  # ---------------------------------------------------------------------------
+  # RFC 9457 Problem Details.
+  #
+  # Identical in every API Commons base, and lifted from
+  # https://github.com/api-commons/problem-details-for-http-apis so that every
+  # base errors the same way. Conformance is checked in CI by
+  # https://github.com/api-commons/spectral-problem-details-ruleset
+  #
+  # The `urn:ietf:rfc:7807` XML namespace below is CORRECT and deliberate — RFC
+  # 9457 Appendix B retained it for backward compatibility. Do not "fix" it.
+  # ---------------------------------------------------------------------------
+
+    Problem:
+      type: object
+      description: >-
+        A problem detail object, per RFC 9457 Section 3.1. Every member is
+        optional. `additionalProperties` is deliberately left unset so problem
+        types can carry extension members, as Section 3.2 requires.
+      xml:
+        name: problem
+        namespace: urn:ietf:rfc:7807
+      properties:
+        type:
+          type: string
+          format: uri
+          description: A URI reference identifying the problem type. Defaults to about:blank.
+          example: https://example.com/probs/out-of-credit
+        title:
+          type: string
+          description: A short, human-readable summary of the problem type.
+          example: You do not have enough credit.
+        status:
+          type: integer
+          description: >-
+            The HTTP status code generated by the origin server. Advisory — the
+            real status code is the one on the response.
+          example: 403
+        detail:
+          type: string
+          description: >-
+            A human-readable explanation specific to this occurrence, focused on
+            helping the client correct the problem rather than on debugging.
+          example: Your current balance is 30, but that costs 50.
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference identifying this specific occurrence of the problem.
+          example: /account/12345/msgs/abc
+
+  headers:
+
+    ETag:
+      description: >-
+        An opaque validator for the current state of the resource. Send it back in
+        `If-Match` on a write to avoid clobbering a concurrent update. RFC 9110
+        Section 8.8.3.
+      schema:
+        type: string
+        example: '"a1b2c3"'
+
+    RateLimit:
+      description: >-
+        Remaining quota and the reset interval for the current policy, per the IETF
+        RateLimit header fields draft.
+      schema:
+        type: string
+        example: 'limit=100, remaining=94, reset=50'
+
+    WWW-Authenticate:
+      description: >-
+        The authentication scheme and parameters applicable to the target
+        resource. RFC 9110 Section 11.6.1 requires a 401 to carry at least one
+        challenge; a problem detail explaining the 401 does not substitute for it.
+      schema:
+        type: string
+        example: 'Bearer realm="example", error="invalid_token"'
+
+    Retry-After:
+      description: >-
+        How long the client should wait before retrying, in seconds or as an
+        HTTP-date. RFC 9110 Section 10.2.3.
+      schema:
+        type: string
+        example: '120'
+
+  responses:
+
+    BadRequest:
+      description: Bad Request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/bad-request
+            title: Bad Request
+            status: 400
+            detail: The request body is invalid or a required field is missing.
+            instance: /requests/01HZ
+
+    Unauthorized:
+      description: Unauthorized
+      headers:
+        WWW-Authenticate:
+          $ref: '#/components/headers/WWW-Authenticate'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/unauthorized
+            title: Unauthorized
+            status: 401
+            detail: The access token is missing, malformed, or expired.
+            instance: /requests/01HZ
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/forbidden
+            title: Forbidden
+            status: 403
+            detail: The credential is valid but lacks the scope for this operation.
+            instance: /requests/01HZ
+
+    NotFound:
+      description: Not Found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/not-found
+            title: Not Found
+            status: 404
+            detail: No resource exists with that identifier.
+            instance: /requests/01HZ
+
+    UnprocessableContent:
+      description: Unprocessable Content
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/unprocessable-content
+            title: Unprocessable Content
+            status: 422
+            detail: The request was well-formed but failed a business rule.
+            instance: /requests/01HZ
+
+    PreconditionFailed:
+      description: Precondition Failed
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/precondition-failed
+            title: Precondition Failed
+            status: 412
+            detail: The resource changed since you read it. Re-read it and retry.
+            instance: /requests/01HZ
+
+    UnsupportedMediaType:
+      description: Unsupported Media Type
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/unsupported-media-type
+            title: Unsupported Media Type
+            status: 415
+            detail: This operation expects application/merge-patch+json.
+            instance: /requests/01HZ
+
+    TooManyRequests:
+      description: Too Many Requests
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/Retry-After'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/too-many-requests
+            title: Too Many Requests
+            status: 429
+            detail: You have exceeded the rate limit for this endpoint.
+            instance: /requests/01HZ
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://example.com/errors/internal-server-error
+            title: Internal Server Error
+            status: 500
+            detail: The request could not be completed. Retry, then contact support.
+            instance: /requests/01HZ

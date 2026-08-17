@@ -1,0 +1,55 @@
+aid: base-images
+name: Images
+type: Base
+description: |-
+  A base Images API for the API Commons — a starting point you copy into your own
+  service rather than a hosted API. Upload is a two-step flow (create the record, PUT the bytes to a short-lived URL) and renditions are requested rather than enumerated.
+
+  Errors are RFC 9457 problem details, identical across every API Commons base, and
+  checked in CI by the API Commons Problem Details Spectral ruleset.
+image: https://kinlane-productions.s3.amazonaws.com/apis-json/apis-json-logo.jpg
+tags:
+- Application Programming Interface
+- API
+- Images
+- Photos
+- Media
+created: '2026-08-17'
+modified: '2026-08-17'
+url: https://raw.githubusercontent.com/api-commons/images/main/apis.yml
+specificationVersion: '0.20'
+apis:
+- aid: base-images:images
+  name: Images API
+  description: A base Images API — upload, metadata, renditions, and deletion, described once.
+  image: https://kinlane-productions.s3.amazonaws.com/apis-json/apis-json-logo.jpg
+  humanURL: https://apicommons.org/base/images/
+  baseURL: https://api.example.com
+  tags:
+  - API
+  - Application Programming Interface
+  - Images
+  - Photos
+  - Media
+  properties:
+  - type: OpenAPI
+    url: https://raw.githubusercontent.com/api-commons/images/main/openapi.yml
+  - type: GitHubRepository
+    url: https://github.com/api-commons/images
+  - type: Documentation
+    url: https://apicommons.org/base/images/
+  - type: SpectralRules
+    url: https://raw.githubusercontent.com/api-commons/spectral-problem-details-ruleset/main/problem-details.yaml
+  - type: License
+    url: https://github.com/api-commons/images/blob/main/LICENSE
+  contact:
+  - FN: API Evangelist
+    email: info@apievangelist.com
+common:
+- type: Commons
+  url: https://apicommons.org/base/images/
+- type: Discussion
+  url: https://github.com/orgs/api-commons/discussions
+maintainers:
+- FN: Kin Lane
+  email: info@apievangelist.com

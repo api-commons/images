@@ -1,0 +1,74 @@
+# Images
+
+A **base Images API** for the [API Commons](https://apicommons.org) — upload, metadata,
+renditions, and deletion, described once.
+
+Images have been done. There is no good reason every application invents its own upload
+endpoint, its own metadata shape, and its own way of asking for a smaller version of the
+same picture.
+
+## What's here
+
+- **[openapi.yml](openapi.yml)** — OpenAPI 3.1 covering list, create, read, update,
+  delete, and renditions.
+- **[apis.yml](apis.yml)** — the APIs.json index for this base.
+
+## Shape
+
+| Operation | Method | Path |
+| --- | --- | --- |
+| `listImages` | GET | `/images` |
+| `createImage` | POST | `/images` |
+| `getImage` | GET | `/images/{imageId}` |
+| `updateImage` | PATCH | `/images/{imageId}` |
+| `deleteImage` | DELETE | `/images/{imageId}` |
+| `getImageRendition` | GET | `/images/{imageId}/renditions` |
+
+Three choices worth keeping when you copy it:
+
+**Upload is two steps.** `POST /images` creates the record and returns a short-lived
+`upload.url` to `PUT` the bytes to. That keeps large binaries off the JSON API, lets you
+hand out a pre-signed storage URL, and means a failed upload does not lose the metadata.
+The image sits in `pending` until the bytes arrive.
+
+**Renditions are requested, not enumerated.** A client asks for the width and format it
+wants; it never has to discover which fixed variants happen to exist.
+
+**`alt` is on the base.** An image API that makes the text alternative easy to skip
+produces an inaccessible product downstream.
+
+## Errors
+
+Every API Commons base errors the same way: [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457)
+problem details, `application/problem+json`, with the same `Problem` schema and the same
+set of named responses lifted from
+[problem-details-for-http-apis](https://github.com/api-commons/problem-details-for-http-apis).
+
+That block is byte-identical across the bases on purpose. If you adopt more than one,
+your clients parse one error format.
+
+Conformance is checked by the
+[Problem Details Spectral ruleset](https://github.com/api-commons/spectral-problem-details-ruleset):
+
+```
+spectral lint openapi.yml \
+  -r https://raw.githubusercontent.com/api-commons/spectral-problem-details-ruleset/main/problem-details.yaml
+```
+
+This file lints **clean** under that ruleset, and under `spectral:oas` apart from one
+deliberate warning: `oas3-api-servers`. A base template has no server, and adding a
+placeholder would only trip `oas3-server-not-example.com`. Add your own `servers` when
+you adopt it.
+
+## Using it
+
+Copy `openapi.yml` into your own repo and change it. This is a starting point, not a
+dependency — there is no hosted API behind it and nothing to install. Keep the error
+components as they are and you inherit a standard error contract for free.
+
+`apis.yml` is the [APIs.json](https://apisjson.org) index for this base, pointing at the
+OpenAPI, this repository, the ruleset, and the documentation.
+
+## License
+
+[Apache-2.0](LICENSE).
